@@ -302,20 +302,21 @@ class CrossAttention(nn.Module):
         self.use_flash_attention = use_flash_attention
 
         if dim_head <= 160 and (dim_head % 8) == 0:
-            if self.use_flash_attention:
-                if context_dim == query_dim:
+            if context_dim == query_dim:
+                if self.use_flash_attention:
                     self.flash_attn = FlashSelfAttention(softmax_scale=self.scale)
-                else:
-                    self.flash_attn = FlashCrossAttention(softmax_scale=self.scale)
-            elif self.use_te_dpa:
-                self.te_dpa = DotProductAttention(
-                    kv_channels=dim_head,
-                    num_attention_heads=self.inner_dim // dim_head,
-                    attn_mask_type='no_mask',
-                    attention_type='self' if context_dim == query_dim else 'cross',
-                    qkv_format='bshd',  # `sbhd`, `bshd`, `thd`
-                    softmax_scale=self.scale,
-                )
+                elif self.use_te_dpa:
+                    self.te_dpa = DotProductAttention(
+                        kv_channels=dim_head,
+                        num_attention_heads=self.inner_dim // dim_head,
+                        attn_mask_type='no_mask',
+                        attention_type='self' if context_dim == query_dim else 'cross',
+                        qkv_format='bshd',  # `sbhd`, `bshd`, `thd`
+                        softmax_scale=self.scale,
+                    )
+            else:
+                self.flash_attn = FlashCrossAttention(softmax_scale=self.scale)
+
 
     def forward(self, x, context=None, mask=None, additional_tokens=None, n_times_crossframe_attn_in_self=0):
         h = self.heads
@@ -385,7 +386,7 @@ class CrossAttention(nn.Module):
             # (b h) n d -> b n (h d)
             out = rearrange_heads_inner(out, h)
 
-        elif self.use_te_dpa:
+        elif self.use_te_dpa and self.context_dim == self.query_dim:
             b, s_kv, hd = k.shape
             s_q = q.shape[1]
             d = hd // h

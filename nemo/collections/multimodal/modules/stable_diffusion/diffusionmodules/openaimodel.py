@@ -60,6 +60,26 @@ def convert_module_to_dtype(module, dtype, enable_norm_layers=False):
         if module.bias is not None:
             module.bias.data = module.bias.data.to(dtype)
 
+    if HAVE_TE:
+        if isinstance(module, transformer_engine.pytorch.module.Linear):
+            module.weight.data = module.weight.data.to(dtype)
+            if module.use_bias is not None:
+                module.bias.data = module.bias.data.to(dtype)
+        elif isinstance(module, transformer_engine.pytorch.module.LayerNormLinear):
+            module.layer_norm_weight.data = module.layer_norm_weight.data.to(dtype)
+            module.layer_norm_bias.data = module.layer_norm_bias.data.to(dtype)
+            module.weight.data = module.weight.data.to(dtype)
+            if module.use_bias is not None:
+                module.bias.data = module.bias.data.to(dtype)
+        elif isinstance(module, transformer_engine.pytorch.module.LayerNormMLP):
+            module.layer_norm_weight.data = module.layer_norm_weight.data.to(dtype)
+            module.layer_norm_bias.data = module.layer_norm_bias.data.to(dtype)
+            module.fc1_weight.data = module.fc1_weight.data.to(dtype)
+            module.fc2_weight.data = module.fc2_weight.data.to(dtype)
+            if module.use_bias:
+                module.fc1_bias.data = module.fc1_bias.data.to(dtype)
+                module.fc2_bias.data = module.fc2_bias.data.to(dtype)
+
     if enable_norm_layers:
         if isinstance(module, (nn.LayerNorm, nn.GroupNorm, GroupNorm)):
             module.weight.data = module.weight.data.to(dtype)
@@ -972,12 +992,9 @@ class UNetModel(nn.Module):
             else:
                 logging.info(f"There are no missing keys, model loaded properly!")
 
-        if unet_precision == "fp16-mixed":  # AMP O2
-            self.convert_to_fp16()
-        elif unet_precision == 'fp16':
-            self.convert_to_fp16(enable_norm_layers=True)
         if self.use_te_fp8:
             assert unet_precision == 'fp16', "fp8 training can't work with fp16 O2 amp recipe"
+
             convert_module_to_fp8(self)
 
             fp8_margin = int(os.getenv("FP8_MARGIN", '0'))
@@ -1000,11 +1017,16 @@ class UNetModel(nn.Module):
                 amax_history_len=fp8_amax_history_len,
                 amax_compute_algo=fp8_amax_compute_algo,
                 override_linear_precision=(False, False, not fp8_wgrad),
-                # fp8_dpa=use_te_dpa, # TODO; fp8 DPA kernel is not supported now.
+                fp8_dpa=use_te_dpa,
             )
             old_state_dict = self.state_dict()
             new_state_dict = self.te_fp8_key_mapping(old_state_dict)
             self.load_state_dict(new_state_dict, strict=False)
+
+        if unet_precision == "fp16-mixed":  # AMP O2
+            self.convert_to_fp16()
+        elif unet_precision == 'fp16':
+            self.convert_to_fp16(enable_norm_layers=True)
 
         self.unet_precision = unet_precision
 
