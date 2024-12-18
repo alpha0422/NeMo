@@ -2253,10 +2253,19 @@ class MegatronLatentDiffusion(NLPAdapterModelMixin, MegatronBaseModel):
                 checkpoint['state_dict'] = new_state_dict
 
             # compatiblity for te-dpa in inference
+            # when not using te-dpa in inference.
             if cfg.get('unet_config') and not cfg.get('unet_config').get('use_te_dpa'):
                 new_state_dict = {}
                 for key in checkpoint['state_dict'].keys():
-                    if "_extra_state" not in key:
+                    if "_extra_state" not in key or 'te_dpa' not in key:
+                        new_state_dict[key] = checkpoint['state_dict'][key]
+                checkpoint['state_dict'] = new_state_dict
+
+            # when not using fp8-gemm in inference.
+            if cfg.get('unet_config') and not cfg.get('unet_config').get('use_te_fp8'):
+                new_state_dict = {}
+                for key in checkpoint['state_dict'].keys():
+                    if "_extra_state" not in key or "te_dpa" in key:
                         new_state_dict[key] = checkpoint['state_dict'][key]
                 checkpoint['state_dict'] = new_state_dict
 
