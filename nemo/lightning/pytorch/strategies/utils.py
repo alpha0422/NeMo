@@ -98,6 +98,16 @@ def init_model_parallel(pl_module: pl.LightningModule):
         app_state = AppState()
 
         if app_state.model_parallel_size is not None:
+            # Update AppState with correct num_distributed_optimizer_instances from strategy DDP config
+            if hasattr(pl_module, 'trainer') and hasattr(pl_module.trainer, 'strategy'):
+                strategy = pl_module.trainer.strategy
+                if hasattr(strategy, '_get_num_distributed_optimizer_instances'):
+                    # Use the strategy's method to get the correct value from DDP config
+                    app_state.num_distributed_optimizer_instances = strategy._get_num_distributed_optimizer_instances()
+                elif hasattr(strategy, 'ddp_config') and hasattr(strategy.ddp_config, 'num_distributed_optimizer_instances'):
+                    # Fallback: get directly from DDP config
+                    app_state.num_distributed_optimizer_instances = strategy.ddp_config.num_distributed_optimizer_instances
+
             _strategy_lib.init_model_parallel(pl_module)
 
 

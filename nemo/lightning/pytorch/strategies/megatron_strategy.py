@@ -412,7 +412,13 @@ class MegatronStrategy(DDPStrategy, io.IOMixin):
             raise ValueError("ckpt_load_optimizer and ckpt_load_main_params cannot be both set to True.")
 
         if isinstance(self.ddp_config, DistributedDataParallelConfig):
-            self.ddp_config.num_distributed_optimizer_instances = self.num_distributed_optimizer_instances
+            # If DDP config already has a value (from YAML), use that; otherwise use constructor parameter
+            if hasattr(self.ddp_config, 'num_distributed_optimizer_instances') and self.ddp_config.num_distributed_optimizer_instances != 1:
+                # DDP config has a non-default value (from YAML), update constructor parameter to match
+                self.num_distributed_optimizer_instances = self.ddp_config.num_distributed_optimizer_instances
+            else:
+                # DDP config doesn't have a value or has default, set it from constructor parameter
+                self.ddp_config.num_distributed_optimizer_instances = self.num_distributed_optimizer_instances
 
         # used in NVIDIA NGC PyTorch containers
         _strategy_lib.enable_nvidia_optimizations()
@@ -1332,6 +1338,12 @@ class MegatronStrategy(DDPStrategy, io.IOMixin):
         """
         return True
 
+    def _get_num_distributed_optimizer_instances(self) -> int:
+        """Get num_distributed_optimizer_instances from DDP config if available, otherwise use constructor value."""
+        if isinstance(self.ddp_config, DistributedDataParallelConfig):
+            return self.ddp_config.num_distributed_optimizer_instances
+        return self.num_distributed_optimizer_instances
+
     @property
     def parallelism(self) -> ParallelismConfig:
         """Returns parallelism config from class attrs as a POD"""
@@ -1355,7 +1367,7 @@ class MegatronStrategy(DDPStrategy, io.IOMixin):
             pipeline_dtype=self.pipeline_dtype,
             use_te_rng_tracker=self.use_te_rng_tracker,
             use_tp_pp_dp_mapping=self.use_tp_pp_dp_mapping,
-            num_distributed_optimizer_instances=self.num_distributed_optimizer_instances,
+            num_distributed_optimizer_instances=self._get_num_distributed_optimizer_instances(),
             nccl_communicator_config_path=self.nccl_communicator_config_path,
             use_sharp=self.use_sharp,
             pipeline_model_parallel_layout=self.pipeline_model_parallel_layout,
